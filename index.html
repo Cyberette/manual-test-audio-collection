@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice Recording Session</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #16181d; --muted: #5d6470;
+    --line: #dde1e7; --accent: #2457d6; --accent-text: #ffffff;
+    --rec: #d93a3a; --ok: #1f8a4c; --warn: #b26a00; --meter: #2457d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111317; --card: #1b1e24; --text: #eceef2; --muted: #9aa2ae;
+      --line: #2e333c; --accent: #6b93ff; --accent-text: #0b0d10;
+      --rec: #ff6b6b; --ok: #4cc286; --warn: #f0a63a; --meter: #6b93ff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #111317; --card: #1b1e24; --text: #eceef2; --muted: #9aa2ae;
+    --line: #2e333c; --accent: #6b93ff; --accent-text: #0b0d10;
+    --rec: #ff6b6b; --ok: #4cc286; --warn: #f0a63a; --meter: #6b93ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 17px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 1.4rem; margin: 0 0 12px; }
+  h2 { font-size: 1.1rem; margin: 20px 0 8px; }
+  p { margin: 8px 0; }
+  .muted { color: var(--muted); font-size: 0.95rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin: 16px 0; }
+  .banner { background: var(--warn); color: #fff; padding: 8px 12px; border-radius: 10px; font-size: 0.9rem; margin-bottom: 12px; }
+  .opts { display: flex; flex-wrap: wrap; gap: 8px; }
+  .opts label { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; cursor: pointer; background: var(--card); }
+  .opts input { margin-right: 6px; }
+  .opts label:has(input:checked) { border-color: var(--accent); outline: 2px solid var(--accent); }
+  input[type=text] { width: 100%; font: inherit; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  button { font: inherit; border: 0; border-radius: 12px; padding: 12px 20px; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+  button.secondary { background: transparent; color: var(--text); border: 1px solid var(--line); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
+  .progress { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .progress > div { height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+  .kind { text-transform: uppercase; letter-spacing: .06em; font-size: .75rem; color: var(--muted); }
+  .prompt { font-size: 1.45rem; line-height: 1.45; margin: 10px 0 4px; }
+  .recbtn {
+    width: 96px; height: 96px; border-radius: 50%; background: var(--rec); color: #fff;
+    font-weight: 700; display: grid; place-items: center; margin: 18px auto 8px; font-size: .95rem;
+  }
+  .recbtn.recording { animation: pulse 1.2s infinite; }
+  .recbtn.square { border-radius: 18px; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(217,58,58,.5); } 50% { box-shadow: 0 0 0 14px rgba(217,58,58,0); } }
+  .meter { height: 10px; background: var(--line); border-radius: 5px; overflow: hidden; margin: 8px 0; }
+  .meter > div { height: 100%; width: 0; background: var(--meter); transition: width .05s; }
+  .center { text-align: center; }
+  .msg-ok { color: var(--ok); }
+  .msg-warn { color: var(--warn); }
+  .msg-err { color: var(--rec); }
+  .timer { font-variant-numeric: tabular-nums; color: var(--muted); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main id="app">
+  <div id="testBanner" class="banner" hidden>TEST MODE: nothing is uploaded. You can download the recordings at the end.</div>
+
+  <!-- Screen: bad link -->
+  <section id="s-badlink" hidden>
+    <h1>This link is incomplete</h1>
+    <p>Please use the personal link you were sent. If it still does not work, message Nico.</p>
+    <div id="testCodeBox" class="card" hidden>
+      <p class="muted">Test mode: type a participant code (for example P99).</p>
+      <input id="testCode" type="text" placeholder="P99">
+      <div class="row"><button class="primary" id="testCodeGo">Continue</button></div>
+    </div>
+  </section>
+
+  <!-- Screen: setup -->
+  <section id="s-setup" hidden>
+    <h1>Voice recording session</h1>
+    <p>Thank you for helping. One session takes about 5 minutes: you read some short sentences out loud and answer a few questions. Everything records and uploads by itself.</p>
+    <p class="muted">Participant <b id="pidLabel"></b>. We do 2 sessions in two different places, plus an optional third on another day.</p>
+
+    <div class="card">
+      <h2 style="margin-top:0">Which session is this?</h2>
+      <div class="opts" id="optSession">
+        <label><input type="radio" name="session" value="1">Session 1</label>
+        <label><input type="radio" name="session" value="2">Session 2</label>
+        <label><input type="radio" name="session" value="3">Session 3 (optional)</label>
+      </div>
+      <p id="sessionHint" class="muted"></p>
+    </div>
+
+    <div class="card">
+      <h2 style="margin-top:0">What are you recording on?</h2>
+      <div class="opts" id="optDevice">
+        <label><input type="radio" name="device" value="phone">Phone</label>
+        <label><input type="radio" name="device" value="laptop">Laptop</label>
+        <label><input type="radio" name="device" value="tablet">Tablet</label>
+        <label><input type="radio" name="device" value="desktop">Desktop computer</label>
+      </div>
+      <p class="muted" style="margin-top:12px">Model, if you know it (optional)</p>
+      <input id="deviceModel" type="text" placeholder="e.g. iPhone 13, Pixel 7, ThinkPad T14">
+
+      <h2>Which microphone?</h2>
+      <div class="opts" id="optMic">
+        <label><input type="radio" name="mic" value="builtin">The device's own microphone</label>
+        <label><input type="radio" name="mic" value="wired">Wired headset</label>
+        <label><input type="radio" name="mic" value="bluetooth">Bluetooth earbuds or headset</label>
+      </div>
+
+      <h2>Where are you?</h2>
+      <div class="opts" id="optPlace">
+        <label><input type="radio" name="place" value="quiet-indoor">Quiet room</label>
+        <label><input type="radio" name="place" value="noisy-indoor">Noisy indoor place</label>
+        <label><input type="radio" name="place" value="outdoor">Outdoors</label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin-top:0">Your first language</h2>
+      <input id="firstLang" type="text" list="langList" placeholder="e.g. Italian, Korean, English" autocomplete="off">
+      <datalist id="langList">
+        <option value="English"><option value="Italian"><option value="Korean"><option value="Spanish">
+        <option value="French"><option value="German"><option value="Portuguese"><option value="Dutch">
+        <option value="Macedonian"><option value="Serbian"><option value="Turkish"><option value="Arabic">
+        <option value="Urdu"><option value="Hindi"><option value="Chinese"><option value="Japanese">
+      </datalist>
+      <div id="engBox" hidden>
+        <h2>Which English? Pick the accent closest to yours</h2>
+        <div class="opts" id="optEnglish">
+          <label><input type="radio" name="english" value="american">American</label>
+          <label><input type="radio" name="english" value="british">British (England, Wales)</label>
+          <label><input type="radio" name="english" value="scottish">Scottish</label>
+          <label><input type="radio" name="english" value="irish">Irish</label>
+          <label><input type="radio" name="english" value="canadian">Canadian</label>
+          <label><input type="radio" name="english" value="australian-nz">Australian or New Zealand</label>
+          <label><input type="radio" name="english" value="south-african">South African</label>
+          <label><input type="radio" name="english" value="indian">Indian</label>
+          <label><input type="radio" name="english" value="other">Other</label>
+        </div>
+      </div>
+    </div>
+
+    <p class="muted">Please do not say your name or other private details in the recordings.</p>
+    <div class="row"><button class="primary" id="startBtn" disabled>Start: allow microphone</button></div>
+    <p id="setupErr" class="msg-err"></p>
+  </section>
+
+  <!-- Screen: mic check -->
+  <section id="s-check" hidden>
+    <h1>Microphone check</h1>
+    <p>Say a few words. The bar should move while you speak.</p>
+    <div class="meter"><div id="checkMeter"></div></div>
+    <p id="checkMsg" class="muted">Listening...</p>
+    <div class="row"><button class="primary" id="checkOk" disabled>Sounds good, begin</button></div>
+  </section>
+
+  <!-- Screen: prompt -->
+  <section id="s-prompt" hidden>
+    <div class="row" style="margin-top:0; justify-content: space-between">
+      <span class="muted" id="stepLabel"></span>
+      <span class="muted" id="uploadLabel"></span>
+    </div>
+    <div class="progress"><div id="progressBar"></div></div>
+
+    <div class="card">
+      <div class="kind" id="kindLabel"></div>
+      <div class="prompt" id="promptText"></div>
+      <p class="muted" id="promptHelp"></p>
+    </div>
+
+    <button class="recbtn" id="recBtn">Record</button>
+    <div class="meter"><div id="recMeter"></div></div>
+    <p class="center timer" id="timer">&nbsp;</p>
+    <p class="center" id="recMsg">&nbsp;</p>
+
+    <div class="row" style="justify-content:center">
+      <button class="secondary" id="playBtn" disabled>Listen</button>
+      <button class="secondary" id="redoBtn" disabled>Redo</button>
+      <button class="primary" id="nextBtn" disabled>Next</button>
+    </div>
+    <audio id="player" hidden></audio>
+  </section>
+
+  <!-- Screen: done -->
+  <section id="s-done" hidden>
+    <h1>Thank you, that was the whole session.</h1>
+    <div class="card">
+      <p id="doneUpload">Uploading...</p>
+      <div class="progress"><div id="doneBar"></div></div>
+      <div class="row"><button class="secondary" id="retryBtn" hidden>Retry failed uploads</button></div>
+      <div class="row"><button class="primary" id="zipBtn" hidden>Download recordings (zip)</button></div>
+    </div>
+    <p id="nextHint" class="muted"></p>
+  </section>
+
+  <!-- Screen: fatal -->
+  <section id="s-fatal" hidden>
+    <h1>Something went wrong</h1>
+    <p id="fatalMsg"></p>
+    <p class="muted">Reload the page to try again. Recordings that were already uploaded are kept. If it keeps happening, message Nico with a screenshot.</p>
+  </section>
+</main>
+
+<script src="config.js"></script>
+<script src="prompts.js"></script>
+<script>
+"use strict";
+(() => {
+  const CFG = window.COLLECTION_CONFIG;
+  const PROMPTS = window.PROMPTS;
+  const $ = (id) => document.getElementById(id);
+  const qs = new URLSearchParams(location.search);
+  const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
+  // The endpoint can be overridden from the URL only on localhost (testing),
+  // so a crafted link can never redirect someone's recordings elsewhere.
+  const ENDPOINT = (isLocal && qs.get("endpoint")) || CFG.uploadEndpoint || "";
+  const TEST_MODE = !ENDPOINT;
+
+  const SESSION_HINTS = {
+    1: "Session 1: a quiet room, on your phone, using the phone's own microphone. Hold it like you would for a voice note.",
+    2: "Session 2: a different place with background noise (a cafe, the street, a busy office), on your phone. The same day is fine.",
+    3: "Session 3 (optional, very welcome): another day, on a different device (your laptop, or another phone). Any place.",
+  };
+
+  const state = {
+    person: null, token: qs.get("t") || "", session: null,
+    device: null, deviceModel: "", mic: null, place: null,
+    steps: [], i: 0, take: 0, current: null,
+    trackSettings: null, sessionStartedAt: null,
+    clips: [],          // final clip records (metadata) for the session file
+    testFiles: [],      // {name, blob} in test mode
+  };
+
+  // ---------- helpers ----------
+  function show(id) {
+    for (const s of document.querySelectorAll("main > section")) s.hidden = s.id !== id;
+    window.scrollTo(0, 0);
+  }
+  function fatal(msg) { $("fatalMsg").textContent = msg; show("s-fatal"); }
+  function store(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {} }
+  function load(key, dflt) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : dflt; } catch (e) { return dflt; } }
+  function radio(name) { const el = document.querySelector(`input[name=${name}]:checked`); return el ? el.value : null; }
+  function isoNow() { return new Date().toISOString(); }
+  async function sha256Hex(blob) {
+    const buf = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+    return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  // Deterministic per-person shuffle: same person always gets the same order,
+  // so sessions take consecutive, non-overlapping slices.
+  function seedFrom(str) {
+    let h = 2166136261 >>> 0;
+    for (const c of str) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
+    return h;
+  }
+  function rng(seed) {
+    return () => { seed = (seed + 0x6D2B79F5) >>> 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  function shuffled(arr, seedStr) {
+    const r = rng(seedFrom(seedStr)); const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    return a;
+  }
+  function buildSteps(person, session) {
+    const s = session - 1;
+    const pool = shuffled(PROMPTS.pool, `${PROMPTS.version}|${person}|pool`)
+      .slice(s * CFG.poolPerSession, (s + 1) * CFG.poolPerSession);
+    const qs_ = shuffled(PROMPTS.questions, `${PROMPTS.version}|${person}|questions`)
+      .slice(s * CFG.questionsPerSession, (s + 1) * CFG.questionsPerSession);
+    return [
+      ...PROMPTS.shared.filter(([id]) => CFG.sharedIds.includes(id)).map(([id, text]) => ({ id, text, kind: "shared" })),
+      ...pool.map(([id, text]) => ({ id, text, kind: "pool" })),
+      ...qs_.map(([id, text]) => ({ id, text, kind: "question" })),
+    ];
+  }
+  const doneKey = () => `vc:${state.person}:S${state.session}:done`;
+
+  // ---------- audio ----------
+  // AudioWorklet copies raw float samples off the mic. No browser processing:
+  // echo cancellation, noise suppression and auto gain are requested OFF and
+  // what the browser actually applied is recorded per clip (trackSettings).
+  const WORKLET_SRC = `
+    class Rec extends AudioWorkletProcessor {
+      constructor() {
+        super(); this.on = false; this.buf = new Float32Array(4096); this.n = 0; this.pk = 0; this.blocks = 0;
+        this.port.onmessage = (e) => {
+          if (e.data === "start") { this.on = true; this.n = 0; }
+          if (e.data === "stop") { this.flush(); this.on = false; this.port.postMessage({ type: "stopped" }); }
+        };
+      }
+      flush() { if (this.n) { this.port.postMessage({ type: "data", buf: this.buf.slice(0, this.n) }); this.n = 0; } }
+      process(inputs) {
+        const ch = inputs[0] && inputs[0][0];
+        if (ch) {
+          for (let i = 0; i < ch.length; i++) {
+            const a = Math.abs(ch[i]); if (a > this.pk) this.pk = a;
+            if (this.on) { this.buf[this.n++] = ch[i]; if (this.n === this.buf.length) this.flush(); }
+          }
+          if (++this.blocks >= 8) { this.port.postMessage({ type: "level", peak: this.pk }); this.pk = 0; this.blocks = 0; }
+        }
+        return true;
+      }
+    }
+    registerProcessor("rec", Rec);`;
+
+  const audio = { ctx: null, stream: null, node: null, chunks: [], onLevel: null, onStopped: null };
+
+  async function initAudio(ctx) {
+    audio.ctx = ctx;
+    audio.stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+      video: false,
+    });
+    const track = audio.stream.getAudioTracks()[0];
+    state.trackSettings = track.getSettings ? track.getSettings() : {};
+    track.addEventListener("ended", () => fatal("The microphone stopped (was it unplugged or taken by another app?)."));
+    // Run the graph at the mic's own rate so the browser does not resample.
+    // The first context was only made to unlock audio inside the tap.
+    const micRate = state.trackSettings.sampleRate;
+    if (micRate && micRate !== ctx.sampleRate) {
+      try {
+        const native = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: micRate });
+        ctx.close(); ctx = native; audio.ctx = ctx;
+      } catch (e) { /* keep the default rate; the mismatch is recorded per clip */ }
+    }
+    await ctx.resume();
+    const url = URL.createObjectURL(new Blob([WORKLET_SRC], { type: "application/javascript" }));
+    await ctx.audioWorklet.addModule(url);
+    const src = ctx.createMediaStreamSource(audio.stream);
+    audio.node = new AudioWorkletNode(ctx, "rec");
+    const mute = ctx.createGain(); mute.gain.value = 0;
+    src.connect(audio.node); audio.node.connect(mute); mute.connect(ctx.destination);
+    audio.node.port.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === "data") audio.chunks.push(m.buf);
+      else if (m.type === "level" && audio.onLevel) audio.onLevel(m.peak);
+      else if (m.type === "stopped" && audio.onStopped) { const f = audio.onStopped; audio.onStopped = null; f(); }
+    };
+  }
+  function startCapture() { audio.chunks = []; audio.node.port.postMessage("start"); }
+  function stopCapture() {
+    return new Promise((resolve) => {
+      audio.onStopped = () => {
+        const n = audio.chunks.reduce((s, c) => s + c.length, 0);
+        const out = new Float32Array(n); let o = 0;
+        for (const c of audio.chunks) { out.set(c, o); o += c.length; }
+        audio.chunks = [];
+        resolve(out);
+      };
+      audio.node.port.postMessage("stop");
+    });
+  }
+  function meterWidth(peak) {
+    const db = 20 * Math.log10(Math.max(peak, 1e-6));
+    return Math.max(0, Math.min(100, ((db + 60) / 60) * 100));
+  }
+  function encodeWav(samples, rate) {
+    const buf = new ArrayBuffer(44 + samples.length * 2); const v = new DataView(buf);
+    const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, "RIFF"); v.setUint32(4, 36 + samples.length * 2, true); w(8, "WAVE");
+    w(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    w(36, "data"); v.setUint32(40, samples.length * 2, true);
+    for (let i = 0, o = 44; i < samples.length; i++, o += 2) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    return new Blob([buf], { type: "audio/wav" });
+  }
+  function analyse(samples, rate) {
+    let peak = 0, clipped = 0;
+    for (let i = 0; i < samples.length; i++) { const a = Math.abs(samples[i]); if (a > peak) peak = a; if (a >= 0.999) clipped++; }
+    return {
+      duration_s: +(samples.length / rate).toFixed(3),
+      peak_dbfs: +(20 * Math.log10(Math.max(peak, 1e-9))).toFixed(1),
+      clipped_fraction: samples.length ? +(clipped / samples.length).toFixed(5) : 0,
+    };
+  }
+
+  // ---------- uploads ----------
+  const queue = { items: [], running: false, done: 0, failed: 0, total: 0, failedItems: [] };
+
+  function enqueue(name, blob, contentType, onDone) {
+    queue.items.push({ name, blob, contentType, tries: 0, onDone }); queue.total++;
+    renderUpload(); pump();
+  }
+  async function putOne(it) {
+    const sha = await sha256Hex(it.blob);
+    const r = await fetch(ENDPOINT, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: state.token, person_id: state.person, session: state.session,
+        filename: it.name, content_type: it.contentType, size_bytes: it.blob.size, sha256: sha,
+      }),
+    });
+    if (!r.ok) throw new Error(`presign ${r.status}`);
+    const { url, headers } = await r.json();
+    const put = await fetch(url, { method: "PUT", headers: headers || { "Content-Type": it.contentType }, body: it.blob });
+    if (!put.ok) throw new Error(`upload ${put.status}`);
+  }
+  async function pump() {
+    if (queue.running) return; queue.running = true;
+    while (queue.items.length) {
+      const it = queue.items[0];
+      if (TEST_MODE) { state.testFiles.push({ name: it.name, blob: it.blob }); }
+      else {
+        try { await putOne(it); }
+        catch (e) {
+          it.tries++;
+          if (it.tries < 5) { await new Promise((r) => setTimeout(r, 1000 * 2 ** it.tries)); continue; }
+          queue.items.shift(); it.tries = 0; queue.failed++; queue.failedItems.push(it);
+          renderUpload(); continue;
+        }
+      }
+      queue.items.shift(); queue.done++;
+      if (it.onDone) it.onDone();
+      renderUpload();
+    }
+    queue.running = false; renderUpload();
+  }
+  function retryFailed() {
+    const f = queue.failedItems; queue.failedItems = []; queue.failed = 0;
+    for (const it of f) queue.items.push(it);
+    renderUpload(); pump();
+  }
+  function pendingUploads() { return queue.items.length + queue.failed; }
+  function renderUpload() {
+    const word = TEST_MODE ? "saved" : "uploaded";
+    $("uploadLabel").textContent = queue.total ? `${queue.done}/${queue.total} ${word}` : "";
+    $("uploadLabel").className = queue.failed ? "msg-err" : "muted";
+    if (!$("s-done").hidden) renderDone();
+  }
+
+  // ---------- session flow ----------
+  function setupScreen() {
+    $("pidLabel").textContent = state.person;
+    // First language is asked every session but remembered on this device.
+    const langKey = `vc:${state.person}:lang`;
+    const saved = load(langKey, null);
+    if (saved) {
+      $("firstLang").value = saved.first_language || "";
+      const r = saved.english_variety && document.querySelector(`input[name=english][value='${saved.english_variety}']`);
+      if (r) r.checked = true;
+    }
+    const isEnglish = () => /\benglish\b/i.test($("firstLang").value);
+    const check = () => {
+      state.session = Number(radio("session")) || null;
+      $("sessionHint").textContent = state.session ? SESSION_HINTS[state.session] : "";
+      $("engBox").hidden = !isEnglish();
+      const langOk = $("firstLang").value.trim() && (!isEnglish() || radio("english"));
+      $("startBtn").disabled = !(state.session && radio("device") && radio("mic") && radio("place") && langOk);
+    };
+    for (const el of document.querySelectorAll("#s-setup input[type=radio]")) el.addEventListener("change", check);
+    $("firstLang").addEventListener("input", check);
+    check();
+    $("startBtn").addEventListener("click", async () => {
+      state.device = radio("device"); state.mic = radio("mic"); state.place = radio("place");
+      state.firstLanguage = $("firstLang").value.trim().slice(0, 60);
+      state.englishVariety = isEnglish() ? radio("english") : null;
+      store(langKey, { first_language: state.firstLanguage, english_variety: state.englishVariety });
+      state.deviceModel = $("deviceModel").value.trim().slice(0, 80);
+      $("startBtn").disabled = true; $("setupErr").textContent = "";
+      // Create the AudioContext inside the tap itself: iOS Safari refuses it after an await.
+      let ctx;
+      try { ctx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch (e) { $("setupErr").textContent = "This browser cannot record audio. Please try Chrome or Safari."; return; }
+      try { await initAudio(ctx); }
+      catch (e) {
+        $("startBtn").disabled = false;
+        $("setupErr").textContent = e && e.name === "NotAllowedError"
+          ? "The microphone was blocked. Allow microphone access for this page in your browser settings, then try again."
+          : `Could not start the microphone (${e && e.name || e}).`;
+        return;
+      }
+      state.sessionStartedAt = isoNow();
+      state.steps = buildSteps(state.person, state.session);
+      const done = TEST_MODE ? [] : load(doneKey(), []);
+      state.i = 0;
+      while (state.i < state.steps.length && done.includes(state.steps[state.i].id)) state.i++;
+      micCheck();
+    });
+    show("s-setup");
+  }
+
+  function micCheck() {
+    show("s-check");
+    let heard = 0;
+    audio.onLevel = (pk) => {
+      $("checkMeter").style.width = meterWidth(pk) + "%";
+      if (pk > 0.03) heard++;
+      if (heard > 10) { $("checkOk").disabled = false; $("checkMsg").textContent = "We can hear you."; $("checkMsg").className = "msg-ok"; }
+    };
+    $("checkOk").onclick = () => { if (state.i >= state.steps.length) finish(); else promptScreen(); };
+    // Never block someone on a quiet mic forever: allow continuing after 8 s.
+    setTimeout(() => { $("checkOk").disabled = false; }, 8000);
+  }
+
+  let recTimer = null, recStart = 0, recording = false;
+
+  function promptScreen() {
+    const st = state.steps[state.i];
+    show("s-prompt");
+    state.take = 0; state.current = null;
+    $("stepLabel").textContent = `${state.i + 1} of ${state.steps.length}`;
+    $("progressBar").style.width = `${(state.i / state.steps.length) * 100}%`;
+    $("kindLabel").textContent = st.kind === "question" ? "Answer in your own words" : "Read out loud";
+    $("promptText").textContent = st.text;
+    $("promptHelp").textContent = st.kind === "question"
+      ? `Talk for about ${CFG.questionTargetSeconds} seconds. Speak naturally; pauses and "um" are fine. No names or private details, please.`
+      : "Read it naturally, as if you were telling a friend. If you stumble, just keep going or tap Redo.";
+    resetRecUi();
+    audio.onLevel = (pk) => { if (recording) $("recMeter").style.width = meterWidth(pk) + "%"; };
+    renderUpload();
+  }
+  function resetRecUi() {
+    $("recBtn").textContent = "Record"; $("recBtn").classList.remove("recording", "square"); $("recBtn").disabled = false;
+    $("recMeter").style.width = "0"; $("timer").innerHTML = "&nbsp;"; $("recMsg").innerHTML = "&nbsp;"; $("recMsg").className = "center";
+    $("playBtn").disabled = true; $("redoBtn").disabled = true; $("nextBtn").disabled = true;
+  }
+
+  $("recBtn").addEventListener("click", async () => {
+    if (!recording) {
+      // Some browsers (iOS) suspend audio until a tap; every Record tap is one.
+      if (audio.ctx.state !== "running") audio.ctx.resume();
+      resetRecUi();
+      recording = true; state.take++;
+      $("recBtn").textContent = "Stop"; $("recBtn").classList.add("recording", "square");
+      const startedAt = isoNow(); recStart = performance.now();
+      startCapture();
+      const st = state.steps[state.i];
+      recTimer = setInterval(() => {
+        const s = (performance.now() - recStart) / 1000;
+        $("timer").textContent = `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+        if (st.kind === "question" && s >= CFG.questionTargetSeconds) $("recMsg").textContent = "That is enough. Finish your sentence and tap Stop.";
+        if (s >= CFG.maxRecordSeconds) $("recBtn").click();
+      }, 250);
+      state.current = { startedAt };
+      return;
+    }
+    recording = false; clearInterval(recTimer);
+    $("recBtn").disabled = true;
+    const samples = await stopCapture();
+    const rate = audio.ctx.sampleRate;
+    const q = analyse(samples, rate);
+    Object.assign(state.current, { endedAt: isoNow(), samples, rate, q });
+    $("recBtn").textContent = "Record"; $("recBtn").classList.remove("recording", "square"); $("recBtn").disabled = false;
+    $("recMeter").style.width = "0";
+    const msg = $("recMsg");
+    if (q.duration_s < 1.0) { msg.textContent = "That was very short. Please tap Record and try again."; msg.className = "center msg-err"; state.current = null; return; }
+    if (q.peak_dbfs < -40) { msg.textContent = "We could not hear you. Check the microphone and try again."; msg.className = "center msg-err"; state.current = null; return; }
+    if (q.clipped_fraction > 0.001) { msg.textContent = "A bit too loud. Fine to keep, or hold the device a little further away and Redo."; msg.className = "center msg-warn"; }
+    else { msg.textContent = "Got it."; msg.className = "center msg-ok"; }
+    $("playBtn").disabled = false; $("redoBtn").disabled = false; $("nextBtn").disabled = false;
+  });
+
+  $("playBtn").addEventListener("click", () => {
+    if (!state.current) return;
+    const p = $("player");
+    if (p.src) URL.revokeObjectURL(p.src);
+    p.src = URL.createObjectURL(encodeWav(state.current.samples, state.current.rate));
+    p.play();
+  });
+  $("redoBtn").addEventListener("click", () => { state.current = null; resetRecUi(); });
+
+  $("nextBtn").addEventListener("click", () => {
+    const st = state.steps[state.i]; const c = state.current;
+    if (!c) return;
+    const base = `${state.person}_S${state.session}_${st.id}`;
+    const wav = encodeWav(c.samples, c.rate);
+    const meta = {
+      schema: "voice-collection-v1",
+      person_id: state.person, session: state.session,
+      prompt_id: st.id, prompt_kind: st.kind, prompt_text: st.text,
+      prompts_version: PROMPTS.version, language: PROMPTS.language,
+      take: state.take, file: `${base}.wav`,
+      device_type: state.device, device_model: state.deviceModel || null,
+      mic_type: state.mic, environment: state.place,
+      first_language: state.firstLanguage, english_variety: state.englishVariety,
+      channel: "browser-raw", sample_rate: c.rate, channels: 1, bit_depth: 16,
+      mic_sample_rate: state.trackSettings.sampleRate || null,
+      resampled_by_browser: !!(state.trackSettings.sampleRate && state.trackSettings.sampleRate !== c.rate),
+      ...c.q,
+      started_at: c.startedAt, ended_at: c.endedAt,
+      track_settings: state.trackSettings, user_agent: navigator.userAgent,
+      page_version: CFG.pageVersion,
+    };
+    // Audio first, its metadata second: a .json in storage means its .wav landed.
+    enqueue(`${base}.wav`, wav, "audio/wav");
+    enqueue(`${base}.json`, new Blob([JSON.stringify(meta, null, 1)], { type: "application/json" }), "application/json", () => {
+      if (!TEST_MODE) { const d = load(doneKey(), []); if (!d.includes(st.id)) { d.push(st.id); store(doneKey(), d); } }
+    });
+    state.clips.push(meta);
+    state.current = null;
+    state.i++;
+    if (state.i >= state.steps.length) finish(); else promptScreen();
+  });
+
+  function finish() {
+    const sess = {
+      schema: "voice-collection-session-v1",
+      person_id: state.person, session: state.session,
+      device_type: state.device, device_model: state.deviceModel || null,
+      mic_type: state.mic, environment: state.place,
+      first_language: state.firstLanguage, english_variety: state.englishVariety,
+      started_at: state.sessionStartedAt, finished_at: isoNow(),
+      prompts_version: PROMPTS.version, page_version: CFG.pageVersion,
+      n_steps: state.steps.length, clips_this_visit: state.clips.map((c) => c.prompt_id),
+      track_settings: state.trackSettings, user_agent: navigator.userAgent,
+    };
+    // Written last, like manifest.jsonl in the staging contract: its presence
+    // means the session finished.
+    enqueue(`${state.person}_S${state.session}_session.json`,
+      new Blob([JSON.stringify(sess, null, 1)], { type: "application/json" }), "application/json");
+    if (audio.stream) for (const t of audio.stream.getTracks()) t.stop();
+    $("nextHint").textContent = state.session < 3 ? `Next time: ${SESSION_HINTS[state.session + 1]}` : "That was your last session. Thank you!";
+    show("s-done"); renderDone();
+  }
+  function renderDone() {
+    const left = pendingUploads();
+    $("doneBar").style.width = queue.total ? `${(queue.done / queue.total) * 100}%` : "0";
+    if (TEST_MODE) {
+      $("doneUpload").textContent = `Test mode: ${queue.done} files ready.`;
+      $("zipBtn").hidden = left > 0;
+      return;
+    }
+    if (queue.failed) {
+      $("doneUpload").textContent = `${queue.failed} file(s) could not be uploaded. Check your connection and tap Retry. Please keep this page open.`;
+      $("doneUpload").className = "msg-err"; $("retryBtn").hidden = false;
+    } else if (left) {
+      $("doneUpload").textContent = `Uploading ${queue.done} of ${queue.total}... please keep this page open.`;
+      $("doneUpload").className = ""; $("retryBtn").hidden = true;
+    } else {
+      $("doneUpload").textContent = "Everything is uploaded. You can close this page.";
+      $("doneUpload").className = "msg-ok"; $("retryBtn").hidden = true;
+    }
+  }
+  $("retryBtn").addEventListener("click", retryFailed);
+  $("zipBtn").addEventListener("click", async () => {
+    $("zipBtn").disabled = true;
+    try {
+      if (!window.JSZip) await new Promise((res, rej) => {
+        const s = document.createElement("script");
+        s.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+        s.onload = res; s.onerror = rej; document.head.appendChild(s);
+      });
+      const zip = new JSZip();
+      for (const f of state.testFiles) zip.file(f.name, f.blob);
+      const blob = await zip.generateAsync({ type: "blob" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = `${state.person}_S${state.session}_test.zip`; a.click();
+    } catch (e) {
+      for (const f of state.testFiles) { const a = document.createElement("a"); a.href = URL.createObjectURL(f.blob); a.download = f.name; a.click(); }
+    }
+    $("zipBtn").disabled = false;
+  });
+
+  window.addEventListener("beforeunload", (e) => {
+    const midSession = !$("s-prompt").hidden;
+    if (midSession || (!TEST_MODE && pendingUploads() > 0)) { e.preventDefault(); e.returnValue = ""; }
+  });
+
+  // ---------- boot ----------
+  function start(person) { state.person = person; setupScreen(); }
+  if (TEST_MODE) $("testBanner").hidden = false;
+  if (!window.isSecureContext || !navigator.mediaDevices) { fatal("This page must be opened over https to use the microphone."); return; }
+  const pid = (qs.get("p") || "").toUpperCase();
+  if (/^P\d{2,3}$/.test(pid) && (TEST_MODE || state.token)) { start(pid); }
+  else {
+    show("s-badlink");
+    if (TEST_MODE) {
+      $("testCodeBox").hidden = false;
+      $("testCodeGo").addEventListener("click", () => {
+        const v = $("testCode").value.trim().toUpperCase();
+        if (/^P\d{2,3}$/.test(v)) start(v);
+      });
+    }
+  }
+})();
+</script>
+</body>
+</html>
