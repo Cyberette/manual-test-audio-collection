@@ -3,7 +3,7 @@
 // (contract in ../HRISTIJAN_REQUEST.md). Leave it empty for TEST MODE:
 // nothing is uploaded and the page offers a zip download at the end.
 window.COLLECTION_CONFIG = {
-  uploadEndpoint: "",
+  uploadEndpoint: "https://qobdwzlsvbeg4qzr7k7xrsqe7y0wtyjc.lambda-url.eu-north-1.on.aws/",
   // Shared sentences read every session: Harvard list 1, complete (its sound
   // balance holds for the whole list of 10, so do not drop any).
   sharedIds: ["H01", "H02", "H03", "H04", "H05", "H06", "H07", "H08", "H09", "H10"],
